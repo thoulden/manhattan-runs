@@ -185,7 +185,7 @@
     <script>
         // Configuration
         const MAPBOX_TOKEN = 'pk.eyJ1IjoidGhvdWxkZW4iLCJhIjoiY21jczl5Y3VqMTAweTJrczN5ajlpcXY2ciJ9.51bpDEgJ0f0i8QF-2Tlxtg';
-        const STRAVA_CLIENT_ID = 'YOUR_STRAVA_CLIENT_ID'; // You'll need to update this
+        const STRAVA_CLIENT_ID = '167251';
         const REDIRECT_URI = window.location.origin + window.location.pathname;
         
         // Manhattan bounding box (roughly)
@@ -217,7 +217,8 @@
             center: [-73.9855, 40.7589],
             zoom: 11.5,
             minZoom: 10,
-            maxZoom: 16
+            maxZoom: 16,
+            maxBounds: [[-74.047285, 40.680611], [-73.907000, 40.882214]] // Restrict map to Manhattan
         });
         
         let runs = [];
