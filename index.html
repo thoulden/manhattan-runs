@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Manhattan Runs</title>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+        }
+        
+        #map {
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            max-width: 300px;
+        }
+        
+        .controls h3 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .strava-connect {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background: #fc4c02;
+            color: white;
+            text-align: center;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+        
+        .strava-connect:hover {
+            background: #e44502;
+        }
+        
+        .sync-status {
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+        
+        .sync-status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .sync-status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .sync-status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .stats {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .stat-label {
+            color: #666;
+        }
+        
+        .stat-value {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .run-list {
+            margin-top: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .run-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .run-item:hover {
+            background: #e8e8e8;
+        }
+        
+        .run-item.active {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .toggle-streets {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+        }
+        
+        .toggle-streets input {
+            margin-right: 8px;
+        }
+        
+        .last-sync {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="controls">
+        <h3>My Manhattan Runs</h3>
+        
+        <div id="auth-section">
+            <a href="#" class="strava-connect" id="strava-connect">Connect with Strava</a>
+        </div>
+        
+        <div id="sync-section" style="display: none;">
+            <div class="sync-status" id="sync-status">Ready to sync</div>
+            <button onclick="syncStravaData()" style="width: 100%; padding: 8px; margin-bottom: 10px;">Sync New Runs</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-row">
+                <span class="stat-label">Manhattan Runs:</span>
+                <span class="stat-value" id="total-runs">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Total Distance:</span>
+                <span class="stat-value" id="total-distance">0 mi</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Filtered Out:</span>
+                <span class="stat-value" id="filtered-runs">0</span>
+            </div>
+        </div>
+        
+        <div class="toggle-streets">
+            <input type="checkbox" id="toggle-streets" checked>
+            <label for="toggle-streets">Show Manhattan streets</label>
+        </div>
+        
+        <div class="run-list" id="run-list"></div>
+        
+        <div class="last-sync" id="last-sync"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const MAPBOX_TOKEN = 'pk.eyJ1IjoidGhvdWxkZW4iLCJhIjoiY21jczl5Y3VqMTAweTJrczN5ajlpcXY2ciJ9.51bpDEgJ0f0i8QF-2Tlxtg';
+        const STRAVA_CLIENT_ID = 'YOUR_STRAVA_CLIENT_ID'; // You'll need to update this
+        const REDIRECT_URI = window.location.origin + window.location.pathname;
+        
+        // Manhattan bounding box (roughly)
+        const MANHATTAN_BOUNDS = {
+            north: 40.882214,
+            south: 40.680611,
+            east: -73.907000,
+            west: -74.047285
+        };
+        
+        // Initialize Mapbox
+        mapboxgl.accessToken = MAPBOX_TOKEN;
+        
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {},
+                layers: [
+                    {
+                        id: 'background',
+                        type: 'background',
+                        paint: {
+                            'background-color': '#111111'
+                        }
+                    }
+                ]
+            },
+            center: [-73.9855, 40.7589],
+            zoom: 11.5,
+            minZoom: 10,
+            maxZoom: 16
+        });
+        
+        let runs = [];
+        let filteredCount = 0;
+        
+        // Check for Strava auth on load
+        window.onload = () => {
+            checkStravaAuth();
+            loadStoredRuns();
+        };
+        
+        // Add Manhattan streets layer
+        map.on('load', () => {
+            // Add street source
+            map.addSource('streets', {
+                type: 'vector',
+                url: 'mapbox://mapbox.mapbox-streets-v8'
+            });
+            
+            // Add streets layer
+            map.addLayer({
+                id: 'manhattan-streets',
+                type: 'line',
+                source: 'streets',
+                'source-layer': 'road',
+                filter: [
+                    'all',
+                    ['in', '$type', 'LineString'],
+                    ['!=', 'type', 'construction'],
+                    ['!=', 'class', 'ferry']
+                ],
+                paint: {
+                    'line-color': '#666666',
+                    'line-width': [
+                        'interpolate',
+                        ['exponential', 1.5],
+                        ['zoom'],
+                        10, 0.8,
+                        14, 2.5,
+                        18, 12
+                    ],
+                    'line-opacity': 0.8
+                }
+            });
+            
+            // Initialize empty source for runs
+            map.addSource('runs', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: []
+                }
+            });
+            
+            // Add runs layer with a glowing effect
+            map.addLayer({
+                id: 'runs-glow',
+                type: 'line',
+                source: 'runs',
+                paint: {
+                    'line-color': '#00ff88',
+                    'line-width': 8,
+                    'line-opacity': 0.3,
+                    'line-blur': 4
+                }
+            });
+            
+            map.addLayer({
+                id: 'runs',
+                type: 'line',
+                source: 'runs',
+                paint: {
+                    'line-color': [
+                        'case',
+                        ['get', 'active'],
+                        '#ffff00',
+                        '#00ff88'
+                    ],
+                    'line-width': 3,
+                    'line-opacity': 0.8
+                }
+            });
+            
+            updateMap();
+        });
+        
+        // Strava OAuth
+        function checkStravaAuth() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            
+            if (code) {
+                // Exchange code for token (this would normally happen on a backend)
+                // For GitHub Pages, we'll store it in localStorage
+                localStorage.setItem('strava_auth_code', code);
+                window.history.replaceState({}, document.title, window.location.pathname);
+                showSyncSection();
+            } else if (localStorage.getItem('strava_auth_code')) {
+                showSyncSection();
+            }
+            
+            // Set up Strava connect link
+            document.getElementById('strava-connect').href = 
+                `https://www.strava.com/oauth/authorize?client_id=${STRAVA_CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=activity:read_all`;
+        }
+        
+        function showSyncSection() {
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('sync-section').style.display = 'block';
+        }
+        
+        // Check if run is in Manhattan
+        function isInManhattan(coordinates) {
+            // Check if any point of the run is within Manhattan bounds
+            return coordinates.some(coord => {
+                const [lon, lat] = coord;
+                return lat >= MANHATTAN_BOUNDS.south && 
+                       lat <= MANHATTAN_BOUNDS.north && 
+                       lon >= MANHATTAN_BOUNDS.west && 
+                       lon <= MANHATTAN_BOUNDS.east;
+            });
+        }
+        
+        // Process activity data
+        function processActivity(activity, polyline) {
+            const coordinates = decodePolyline(polyline);
+            
+            // Check if run is in Manhattan
+            if (!isInManhattan(coordinates)) {
+                filteredCount++;
+                return null;
+            }
+            
+            const run = {
+                id: activity.id,
+                name: activity.name,
+                date: new Date(activity.start_date).toLocaleDateString(),
+                distance: activity.distance * 0.000621371, // meters to miles
+                coordinates: coordinates,
+                feature: {
+                    type: 'Feature',
+                    properties: {
+                        id: activity.id,
+                        name: activity.name,
+                        active: false
+                    },
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: coordinates
+                    }
+                }
+            };
+            
+            return run;
+        }
+        
+        // Decode polyline (Strava uses Google's encoded polyline format)
+        function decodePolyline(encoded) {
+            const points = [];
+            let index = 0, len = encoded.length;
+            let lat = 0, lng = 0;
+            
+            while (index < len) {
+                let shift = 0, result = 0, b;
+                do {
+                    b = encoded.charCodeAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+                lat += dlat;
+                
+                shift = 0;
+                result = 0;
+                do {
+                    b = encoded.charCodeAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+                lng += dlng;
+                
+                points.push([lng * 1e-5, lat * 1e-5]);
+            }
+            
+            return points;
+        }
+        
+        // Sync Strava data (simplified for demo)
+        async function syncStravaData() {
+            const status = document.getElementById('sync-status');
+            status.className = 'sync-status loading';
+            status.textContent = 'Syncing with Strava...';
+            
+            try {
+                // In a real implementation, you'd exchange the code for a token
+                // and then fetch activities. For GitHub Pages, you'd need to use
+                // a serverless function or GitHub Actions to handle the OAuth flow
+                
+                // For now, show a message about the limitation
+                setTimeout(() => {
+                    status.className = 'sync-status error';
+                    status.textContent = 'Note: Full Strava sync requires a backend. See setup instructions.';
+                }, 2000);
+                
+            } catch (error) {
+                status.className = 'sync-status error';
+                status.textContent = 'Sync failed: ' + error.message;
+            }
+        }
+        
+        // Store runs in localStorage
+        function storeRuns() {
+            const runData = runs.map(run => ({
+                id: run.id,
+                name: run.name,
+                date: run.date,
+                distance: run.distance,
+                coordinates: run.coordinates
+            }));
+            localStorage.setItem('manhattan_runs', JSON.stringify(runData));
+            localStorage.setItem('last_sync', new Date().toISOString());
+        }
+        
+        // Load stored runs
+        function loadStoredRuns() {
+            const stored = localStorage.getItem('manhattan_runs');
+            if (stored) {
+                const runData = JSON.parse(stored);
+                runs = runData.map(data => ({
+                    ...data,
+                    feature: {
+                        type: 'Feature',
+                        properties: {
+                            id: data.id,
+                            name: data.name,
+                            active: false
+                        },
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: data.coordinates
+                        }
+                    }
+                }));
+                updateStats();
+                runs.forEach(run => addRunToList(run));
+            }
+            
+            const lastSync = localStorage.getItem('last_sync');
+            if (lastSync) {
+                document.getElementById('last-sync').textContent = 
+                    'Last sync: ' + new Date(lastSync).toLocaleString();
+            }
+        }
+        
+        function updateMap() {
+            if (map.getSource('runs')) {
+                const features = runs.map(run => run.feature);
+                map.getSource('runs').setData({
+                    type: 'FeatureCollection',
+                    features: features
+                });
+            }
+        }
+        
+        function updateStats() {
+            document.getElementById('total-runs').textContent = runs.length;
+            const totalDistance = runs.reduce((sum, run) => sum + run.distance, 0);
+            document.getElementById('total-distance').textContent = totalDistance.toFixed(1) + ' mi';
+            document.getElementById('filtered-runs').textContent = filteredCount;
+        }
+        
+        function addRunToList(run) {
+            const runList = document.getElementById('run-list');
+            const runItem = document.createElement('div');
+            runItem.className = 'run-item';
+            runItem.textContent = `${run.name} - ${run.date} (${run.distance.toFixed(1)} mi)`;
+            runItem.onclick = () => highlightRun(run.id);
+            runList.appendChild(runItem);
+        }
+        
+        function highlightRun(runId) {
+            // Update active state
+            runs.forEach(run => {
+                run.feature.properties.active = run.id === runId;
+            });
+            
+            // Update UI
+            document.querySelectorAll('.run-item').forEach((item, index) => {
+                item.classList.toggle('active', runs[index].id === runId);
+            });
+            
+            updateMap();
+            
+            // Zoom to run
+            const run = runs.find(r => r.id === runId);
+            if (run) {
+                const bounds = run.coordinates.reduce((bounds, coord) => {
+                    return bounds.extend(coord);
+                }, new mapboxgl.LngLatBounds(run.coordinates[0], run.coordinates[0]));
+                
+                map.fitBounds(bounds, { padding: 50 });
+            }
+        }
+        
+        // Toggle streets visibility
+        document.getElementById('toggle-streets').addEventListener('change', (e) => {
+            map.setLayoutProperty('manhattan-streets', 'visibility', 
+                e.target.checked ? 'visible' : 'none');
+        });
+    </script>
+</body>
+</html>
