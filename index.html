@@ -172,11 +172,6 @@
             </div>
         </div>
         
-        <div class="toggle-streets">
-            <input type="checkbox" id="toggle-streets" checked>
-            <label for="toggle-streets">Show Manhattan streets</label>
-        </div>
-        
         <div class="run-list" id="run-list"></div>
         
         <div class="last-sync" id="last-sync"></div>
@@ -201,24 +196,12 @@
         
         const map = new mapboxgl.Map({
             container: 'map',
-            style: {
-                version: 8,
-                sources: {},
-                layers: [
-                    {
-                        id: 'background',
-                        type: 'background',
-                        paint: {
-                            'background-color': '#111111'
-                        }
-                    }
-                ]
-            },
+            style: 'mapbox://styles/thoulden/cmcsbasw5000101sq1b8ggf90',
             center: [-73.9855, 40.7589],
             zoom: 11.5,
             minZoom: 10,
             maxZoom: 16,
-            maxBounds: [[-74.047285, 40.680611], [-73.907000, 40.882214]] // Restrict map to Manhattan
+            maxBounds: [[-74.047285, 40.680611], [-73.907000, 40.882214]]
         });
         
         let runs = [];
@@ -230,39 +213,8 @@
             loadStoredRuns();
         };
         
-        // Add Manhattan streets layer
-        map.on('load', () => {
-            // Add street source
-            map.addSource('streets', {
-                type: 'vector',
-                url: 'mapbox://mapbox.mapbox-streets-v8'
-            });
-            
-            // Add streets layer
-            map.addLayer({
-                id: 'manhattan-streets',
-                type: 'line',
-                source: 'streets',
-                'source-layer': 'road',
-                filter: [
-                    'all',
-                    ['in', '$type', 'LineString'],
-                    ['!=', 'type', 'construction'],
-                    ['!=', 'class', 'ferry']
-                ],
-                paint: {
-                    'line-color': '#666666',
-                    'line-width': [
-                        'interpolate',
-                        ['exponential', 1.5],
-                        ['zoom'],
-                        10, 0.8,
-                        14, 2.5,
-                        18, 12
-                    ],
-                    'line-opacity': 0.8
-                }
-            });
+        // Add map layers after style loads
+        map.on('load', async () => {
             
             // Initialize empty source for runs
             map.addSource('runs', {
@@ -523,12 +475,6 @@
                 map.fitBounds(bounds, { padding: 50 });
             }
         }
-        
-        // Toggle streets visibility
-        document.getElementById('toggle-streets').addEventListener('change', (e) => {
-            map.setLayoutProperty('manhattan-streets', 'visibility', 
-                e.target.checked ? 'visible' : 'none');
-        });
     </script>
 </body>
 </html>
