@@ -196,12 +196,22 @@
         
         const map = new mapboxgl.Map({
             container: 'map',
-            style: 'mapbox://styles/thoulden/cmcsbasw5000101sq1b8ggf90',
+            style: 'mapbox://styles/mapbox/dark-v11', // Temporarily using standard style
             center: [-73.9855, 40.7589],
             zoom: 11.5,
             minZoom: 10,
             maxZoom: 16,
             maxBounds: [[-74.047285, 40.680611], [-73.907000, 40.882214]]
+        });
+        
+        // Add error handling
+        map.on('error', (e) => {
+            console.error('Map error:', e);
+            // Fallback to a basic style if custom style fails
+            if (e.error && e.error.status === 404) {
+                console.log('Custom style not found, using fallback');
+                map.setStyle('mapbox://styles/mapbox/dark-v11');
+            }
         });
         
         let runs = [];
